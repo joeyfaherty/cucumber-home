@@ -1,8 +1,0 @@
-Feature: Launch Spring XD Job with incremental, mockInforpedia and fromDate paramaters set
-
-Scenario: Launch Spring XD Job with incremental, mockInforpedia and fromDate paramaters set
-	
-	Given the job inc-cucumber-bdl-attivio-collibra-fromDate does not exist
-	When I create and launch the job inc-cucumber-bdl-attivio-collibra-fromDate as bdl-attivio-collibra-integration --mockInfopediaApi=false --incremental=true --collibraImportTables=false  --collibraImportViews=false --collibraImportFunctions=false --collibraImportColumns=false --fromDate=2016-01-24T11:18:05Z
-	Then the job status for inc-cucumber-bdl-attivio-collibra-fromDate is failed
-	And the job inc-cucumber-bdl-attivio-collibra-fromDate is removed

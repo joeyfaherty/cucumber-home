@@ -1,8 +1,0 @@
-Feature: Launch Spring XD Job
-
-Scenario: Launch Spring XD Job
-	
-	Given the job cucumber-test-schemas-tables-views-functions does not exist
-	When I create and launch the job cucumber-test-schemas-tables-views-functions as bdl-attivio-collibra-integration --collibraEnvironment=dev --collibraImportColumns=false --collibraImportFunctions=true --collibraImportTables=false --collibraImportViews=false --collibraMappingExternalSystemId=ATTV-AUTOMATED-TEST --collibraFunctionVocabularyId=7ebc5f23-1bb6-4662-b1da-32d5f4951ddf --collibraFunctionMappingLocation="GPDB Functions" --collibraSchemaVocabularyId=21846a0d-b38e-4c4f-9e39-2d949844444d --collibraSchemaMappingLocation="GPDB Schemas"
-	Then the job status for cucumber-test-schemas-tables-views-functions is completed
-	And the job cucumber-test-schemas-tables-views-functions is removed
