@@ -1,0 +1,562 @@
+package com.emc.it.bdl.test;
+
+import com.emc.automation.JdbcClient;
+import com.emc.automation.XdClient;
+import com.emc.automation.config.AutomationConfiguration;
+import com.emc.it.bdl.config.Config;
+import com.emc.it.bdl.springxd.JobLaunchException;
+
+import org.apache.commons.httpclient.HttpClient;
+import org.apache.commons.httpclient.methods.DeleteMethod;
+import org.apache.commons.httpclient.methods.GetMethod;
+import org.codehaus.jettison.json.JSONArray;
+import org.codehaus.jettison.json.JSONException;
+import org.json.simple.JSONObject;
+import org.junit.Assert;
+
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.batch.core.BatchStatus;
+import org.springframework.batch.core.JobExecution;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.util.FileCopyUtils;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.xd.rest.domain.JobExecutionInfoResource;
+
+import gherkin.deps.com.google.gson.JsonElement;
+import gherkin.deps.com.google.gson.JsonObject;
+import gherkin.deps.com.google.gson.JsonParser;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+
+import cucumber.api.java.en.Given;
+import cucumber.api.java.en.Then;
+import cucumber.api.java.en.When;
+
+public class Steps {
+
+  private static final String STATUS_DEPLOYED = "deployed";
+  private static final String STATUS_FAILED = "failed";
+  private static final String JSON_TOTAL_HITS_ELEMENT = "totalHits";
+  private static final String JSON_SCHEMA_NAME_ELEMENT = "schemaname";
+  private static final String JSON_GUID_ELEMENT = "guid";
+  private static final String JOB_STATUS = "COMPLETED";
+  public static final Logger LOGGER = LoggerFactory.getLogger(Steps.class);
+  private static final String SQL_RESOURCE_LOCATION = "src/test/resources/greenplumQueries/";
+  
+  /**
+   * Configuration object which encapsulates the source config from
+   * automationConfiguration.properties
+   */
+  private Config conf = Config.load();
+
+
+  private HttpClient client = new HttpClient();
+  private GetMethod getMethod;
+  private DeleteMethod deleteMethod;
+  private int responseStatusCode;
+  private RestTemplate collibraRestTemplate;
+  /**
+   * JDBC client for querying GPDB
+   */
+  private JdbcClient greenplumJdbcClient =
+      new JdbcClient(conf.getPostgresHost(), conf.getPostgresUser(), conf.getPostgresPassword());
+  private Connection connection = null;
+
+  private int schemaCount;
+  private int tableViewCount;
+  private int functionCount;
+  private int columnCount;
+
+  private JsonElement jsonTotalHitsCount;
+  
+  private List<Map<String, Object>> list;
+  private static List<Object> listSchemaGuids;
+  private static List<Object> listTableViewGuids;
+  private static List<Object> listFunctionGuids;
+  
+  private static List<Object> listSchemaNames;
+  private static List<Object> listTableViewSchemaNames;
+  private static List<Object> listFunctionSchemaNames;
+  
+  private JsonObject jsonObj;
+  
+  /**
+   * Resource id of a resource that asset has been removed but mapping is still in there
+   */
+  public static final String RESOURCE_ID_FOR_MAPPING_ONLY = new String("\"dgcId\":null");
+
+  /**
+   * API endpoint used to remove a mapping for a correct set up activities
+   */
+  private static final String COLLIBRA_URL = "http://clbappdev01:8080/dgc/rest/1.0/";
+  private static final String MAPPING_RESOURCE_API = "/sync/mapping/system/{extSystemId}/entity/{extEntityId}";
+  private static final String TERM_FIND_API = "/term/find?community=1788138b-e3f5-4b4f-88f5-b61e31280495&excludeMeta=true" +
+      "&searchSignifier" +
+      "={name}&conceptTypeInheritance=false&limit=1";
+  /**
+   * API endpoint that allows to remove the resource from Collibra
+   */
+  private static final String TERM_REMOVE_API = "/term/remove/async";
+
+  /**
+   * Configuration object which encapsulates the config from automationConfiguration.properties
+   */
+  private AutomationConfiguration config = AutomationConfiguration.load();
+
+  /**
+   * SpringXD Automation client
+   */
+  private XdClient xdClientAutomation = new XdClient(config.getXdClientHost());
+
+  /**
+   * Job timeout setting in milliseconds
+   */
+  private long jobTimeout = 1080000;            //default timeout - 3 hours;
+  
+  /**
+   * SpringXD client
+   */
+  private com.emc.it.bdl.springxd.XdClient xdClient;
+  
+  /*
+   * Greenplum Steps
+   */
+  @Given("^a Greenplum connection$")
+  public void connectToGreenplum() {
+    LOGGER.info("Connecting to Greenplum: {}", conf.getPostgresHost());
+
+    try {
+      Class.forName("org.postgresql.Driver");
+      connection = DriverManager.getConnection(conf.getPostgresHost(), conf.getPostgresUser(), conf.getPostgresPassword());
+    
+    } catch (Exception e) {
+      LOGGER.info("Connection failed", e);
+      fail();
+    }
+  }
+  
+  @When("^I execute the following query for (.*)")
+  public void excuteGreenplumQueries(String sqlFileName) throws Throwable {
+      String selectQueryStmt = FileCopyUtils.copyToString(new FileReader(new File(SQL_RESOURCE_LOCATION + sqlFileName + ".sql")));
+      greenplumJdbcClient.execute(selectQueryStmt);
+      list = greenplumJdbcClient.query(selectQueryStmt);
+      LOGGER.info("Count from Greenplum: {}", list.size());
+      assertTrue("Result list returned from query is empty",!list.isEmpty());
+    }
+
+  
+  @Then("^I record the schema count")
+  public void recordSchemaCountFromGreenplum() throws Throwable {
+	  schemaCount = list.size();
+	  listSchemaGuids = new ArrayList<Object>();
+	  listSchemaNames = new ArrayList<Object>();
+	  listSchemaGuids.addAll(extractListOfValues(list,JSON_GUID_ELEMENT));
+	  listSchemaNames.addAll(extractListOfValues(list,JSON_SCHEMA_NAME_ELEMENT));
+	  LOGGER.info("Schema Names from Greenplum: {}", listSchemaNames);
+	  LOGGER.info("Schema GUIDs from Greenplum: {}", listSchemaGuids);
+	  assertTrue("Schema result list size returned from query is 0",!listSchemaGuids.isEmpty());
+    }
+ 
+  
+  @Then("^I check that the table/view count is greater than (\\d+)")
+  public void recordTableViewCountFromGreenplum(int count) throws Throwable {
+	  tableViewCount = list.size();
+	  listTableViewGuids = new ArrayList<Object>();
+	  listTableViewSchemaNames = new ArrayList<Object>();
+	  listTableViewGuids.addAll(extractListOfValues(list,JSON_GUID_ELEMENT));
+	  listTableViewSchemaNames.addAll(extractListOfValues(list,JSON_SCHEMA_NAME_ELEMENT));
+	  
+	  Boolean condition = false;
+	  if(tableViewCount>count){
+	  condition = true;
+	  }
+	  LOGGER.info("Table/View Names from Greenplum: {}", listTableViewSchemaNames);
+	  LOGGER.info("Table/View GUIDs from Greenplum: {}", listTableViewGuids);
+	  assertTrue("Table/View result list size returned from greenplum query is 0",!listTableViewGuids.isEmpty());
+	  Assert.assertTrue("The table/view count was higher than expected from greenplum ", condition);
+  }
+  
+  
+  @Then("^I check that the function count is greater than (\\d+)")
+  public void recordFunctionCountFromGreenplum(int count) throws Throwable {
+	  functionCount = list.size();
+	  
+	  listFunctionGuids = new ArrayList<Object>();
+	  listFunctionSchemaNames = new ArrayList<Object>();
+	  listFunctionSchemaNames.addAll(extractListOfValues(list,JSON_SCHEMA_NAME_ELEMENT));
+	  listFunctionGuids.addAll(extractListOfValues(list,JSON_GUID_ELEMENT));
+
+	  Boolean condition = false;
+	  if(functionCount>count){
+	  condition = true;
+	  }
+	  LOGGER.info("Function guids from Greenplum: {}", listFunctionSchemaNames);
+	  LOGGER.info("Function Schema Name from Greenplum: {}", listFunctionGuids);
+	  assertTrue("Function result list size returned from greenplum query is 0",!listFunctionGuids.isEmpty());
+	  Assert.assertTrue("The table/view count was higher than expected from greenplum ", condition);
+    }
+  
+  /*
+   * Attivio Steps
+   */
+  @When("^I GET (.*)$")
+  public void getRequestObject(String URL) throws Throwable {
+	    LOGGER.info("Attivio GET request: {} ", URL);
+	    getMethod = new GetMethod(URL);
+	    responseStatusCode = client.executeMethod(getMethod);
+	    
+	    InputStream bytes = getMethod.getResponseBodyAsStream();
+	    String result = getStringFromInputStream(bytes);
+	    
+	    LOGGER.info("JSON Object: {}", result);
+	    LOGGER.info("JSON JsonElement: {}", jsonTotalHitsCount);
+  }
+ 
+  @When("^send a GET (.*) request to Infopedia$")
+  public void getRequestSchema(String URL) throws Throwable {
+	    LOGGER.info("Attivio GET request: {} ", URL);
+	    getMethod = new GetMethod(URL);
+	    responseStatusCode = client.executeMethod(getMethod);
+	    
+	    InputStream bytes = getMethod.getResponseBodyAsStream();
+	    String result = getStringFromInputStream(bytes);
+	    
+	    LOGGER.info("JSON Object: {}", result);
+	    jsonObj = new JsonParser().parse(result).getAsJsonObject();
+	    jsonTotalHitsCount = jsonObj.get(JSON_TOTAL_HITS_ELEMENT);
+}
+  
+  @When("^I send a GET Request (.*) to Infopedia$")
+  public void sendRequestSchemaAttivio(String URL) throws Throwable {
+	    LOGGER.info("Attivio GET request: {} ", URL);
+	    getMethod = new GetMethod(URL);
+	    getMethod.setRequestHeader("apikey", conf.getAttivioApiKey());
+	    responseStatusCode = client.executeMethod(getMethod);
+	    
+	    InputStream bytes = getMethod.getResponseBodyAsStream();
+	    String result = getStringFromInputStream(bytes).trim();
+	    
+	    LOGGER.info("JSON Object: {}", result);
+	    jsonObj = new JsonParser().parse(result).getAsJsonObject();
+	    jsonTotalHitsCount = jsonObj.get(JSON_TOTAL_HITS_ELEMENT);
+	    LOGGER.info("JSON JsonElement: {}", jsonTotalHitsCount);
+  }
+  
+  @When("^I send a HTTP GET Request (.*) to Infopedia$")
+  public void sendRequestSchemaToAttivio(String URL) throws Throwable {
+	    LOGGER.info("Attivio GET request: {} ", URL);
+	    getMethod = new GetMethod(URL);
+	    getMethod.setRequestHeader("apikey", conf.getAttivioApiKey());
+	    responseStatusCode = client.executeMethod(getMethod);
+	    
+	    InputStream bytes = getMethod.getResponseBodyAsStream();
+	    String result = getStringFromInputStream(bytes).trim();
+	    
+	    LOGGER.info("JSON Object: {}", result);
+	    jsonObj = new JsonParser().parse(result).getAsJsonObject();
+	    jsonTotalHitsCount = jsonObj.get(JSON_TOTAL_HITS_ELEMENT);
+	    LOGGER.info("JSON JsonElement: {}", jsonTotalHitsCount);
+  }
+  
+  @When("^I send a GET (.*)$")
+  public void getRequestSchemaAttivio(String URL) throws Throwable {
+	    LOGGER.info("Attivio GET request: {} ", URL);
+	    getMethod = new GetMethod(URL);
+	    getMethod.setRequestHeader("apikey", conf.getAttivioApiKey());
+	    responseStatusCode = client.executeMethod(getMethod);
+	    
+	    InputStream bytes = getMethod.getResponseBodyAsStream();
+	    String result = getStringFromInputStream(bytes).trim();
+	    
+	    LOGGER.info("Http Response Body: {}", result);
+	    LOGGER.info("JSON JsonElement: {}", jsonTotalHitsCount);
+  }
+  
+  @Then("^(.*) totalHits count from Attivio should match greenplum query result$")
+  public void compareAttiviotoGreenplum(String objType) throws Throwable {
+	    int compareCount = jsonObj.get(JSON_TOTAL_HITS_ELEMENT).getAsInt();
+	    LOGGER.info("Attivio compareCount: {}", compareCount);
+	    LOGGER.info("Attivio compareCount: {}", compareCount);
+	    int actualCount = listSchemaNames.size();
+	    if(objType.equals("schema")){
+	    	Assert.assertEquals("Count comparison for schemas from greenplum and attivio does not match",compareCount,actualCount);
+	    }
+	    getMethod.setRequestHeader("apikey", conf.getAttivioApiKey());
+	    responseStatusCode = client.executeMethod(getMethod);
+}
+  
+  /*
+   * Collibra Steps
+   */
+  @When("^I send GET Requests to Collibra at (.*)$")
+  public void getRequestSchemaCollibra(String URL) throws Throwable {
+	  getMethod = new GetMethod(URL);
+	    getMethod.setRequestHeader("Authorization", conf.getCollibraAuthHeader());
+	    responseStatusCode = client.executeMethod(getMethod);
+	    LOGGER.info("Collibra GET requests responseStatusCode: {} ", responseStatusCode);
+  }
+  
+  @When("^I send a GET Request to Collibra for this resource name (.*)$")
+  public void getRequestObjectCollibra(String resourceName) throws Throwable {
+	    String URL = COLLIBRA_URL;
+	    String result = getResourceIdForTermName(resourceName,URL);
+	  //  Assert.assertNotEquals("Could not delete this resourse from Collibra ","{'simpleTerm':[]}",result);
+  }
+  
+  @When("^I send a DELETE Request to (.*)$")
+  public void removeCollibraExtSystemId(String objectName) throws Throwable {
+	  String URL = COLLIBRA_URL;
+	    String result = getResourceIdForTermName(objectName,URL);
+	    Assert.assertNotEquals("Could not delete this resourse from Collibra ","{'simpleTerm':[]}",result);
+  }
+  
+  @Then("^the response code should be (\\d+)$")
+  public void getRequestResponse(int expectedResponse) throws Throwable {
+	    Assert.assertEquals("Attivio GET Request Response not matching ",expectedResponse,responseStatusCode);
+  }
+ 
+  /*
+   * Spring XD Steps
+   */
+  @Given("^the job (.*) does not exist")
+  public void checkJobDoesNotExist(String name) throws Throwable {
+	    LOGGER.info("checking the job does not exist: {}", name);
+	      try {
+	    	  xdClientAutomation.undeployJob(name);
+	    	 xdClientAutomation.destroyJob(name);
+	      } catch (Exception e) {
+	        LOGGER.warn("Could not destroy job " + name + e);
+	      }
+
+	    Assert.assertTrue("Job " + name + " could not be destroyed",
+	            !xdClientAutomation.listJobStates().contains(name));
+	  }
+	
+  @When("^I create and launch the job (.*) as (.*)$")
+  public void createSpringXDJob(String name, String definition) throws Throwable, JobLaunchException {
+    LOGGER.info("Creating job: {}", name);
+
+    xdClientAutomation.createJob(name, definition,true);
+    launchSpringXDJob(name);
+
+    Assert.assertTrue("Job " + name + " did not deploy",
+    		xdClientAutomation.listJobStates().contains(name + ":" + STATUS_DEPLOYED));
+  }
+
+  @Then("^the job status for (.*) is (.*)$")
+  public void checkJobStatus(String name, String jobStatus) throws InterruptedException {
+    LOGGER.info("Checking Job Status: {}", name);
+  
+    boolean jobIsCreated = xdClientAutomation.listJobStates().contains(name);
+    xdClientAutomation.getJobStatus(name);
+    JobExecution latest = xdClientAutomation.getJobStatus(name);
+    if(jobIsCreated){
+    if(jobStatus.equals("failed")){
+    	Assert.assertEquals("The Spring XD job did not complete successfully", STATUS_FAILED, latest.getExitStatus().getExitCode());
+    }else{
+  	Assert.assertEquals("The Spring XD job did not complete successfully", JOB_STATUS, latest.getExitStatus().getExitCode());
+    }
+    }else{
+    	LOGGER.info("Spring XD job does not exist: {}", name);
+    }
+  }
+   
+  
+  @When("^the job (.*) is removed$")
+  public void destroyJob(String name) throws Throwable {
+    LOGGER.info("Destroying job: {}", name);
+
+    xdClientAutomation.undeployJob(name);
+    xdClientAutomation.destroyJob(name);
+    Assert.assertTrue("Job " + name + " could not be destroyed",
+            !xdClientAutomation.listJobStates().contains(name));
+  }
+
+  
+  private boolean launchSpringXDJob(String jobName) throws Throwable {
+	 xdClient = new com.emc.it.bdl.springxd.XdClient(config.getXdClientHost(),config.getXdClientHostUser(),config.getXdClientHostPassword(),getJobTimeout(),1000);
+	  BatchStatus status = BatchStatus.UNKNOWN;
+	   try {
+	  if(xdClientAutomation.listJobStates().contains(jobName + ":" + STATUS_DEPLOYED)){
+      JobExecutionInfoResource previous = xdClient.getLatestJobExecutions(jobName,true);
+      if(previous!=null && previous.getJobExecution().getStatus().isRunning()) {
+        LOGGER.error("Job is already RUNNING");
+        status = BatchStatus.FAILED;
+        throw new JobLaunchException("Job is already RUNNING");
+      }
+    } else {
+      LOGGER.error("Job is not DEPLOYED or yet CREATED");
+      status = BatchStatus.FAILED;
+      throw new JobLaunchException("Job is not DEPLOYED or yet CREATED");
+    }
+    xdClient.launchJob(jobName, null);
+    JobExecutionInfoResource latest = xdClient.getLatestJobExecutions(jobName,true);
+    status = xdClient.waitForCompletion(latest.getExecutionId());
+    LOGGER.info("Spring-xd job status = {}", status);
+  } catch (Exception e) {
+    LOGGER.error("error running job",e);
+    throw e;
+  }
+  if (status.isUnsuccessful()) {
+    return false;
+  } else {
+    return true;
+  }
+}
+  
+  private List<Object> extractListOfValues(List<Map<String, Object>> list,String keyName){
+	  List<Object> listObject = new ArrayList<Object>();
+	  Boolean condition = true;
+	  for (Map<String, Object> map : list) {
+		    for (Map.Entry<String, Object> entry : map.entrySet()) {
+		    	if(entry.getKey().toString().equals(keyName)){
+		    		if(entry.getKey().toString().equals(JSON_SCHEMA_NAME_ELEMENT)){
+		    			Object value = entry.getValue();
+				        value=filterListOfValues(value);
+				        if(value!=null){
+				        listObject.add(value);
+				        condition = false;
+				        }
+		    		}
+		    		if(condition){
+		    		Object value = entry.getValue();
+		            listObject.add(value);
+		    		}
+		        }
+		    }
+	  }
+	  LOGGER.info("Result list size from Greenplum is: {}", listObject.size());
+	return listObject;
+  }
+  
+  private Object filterListOfValues(Object valueName){
+	if(valueName.toString().contains("temp_")){
+		return null;
+	} 
+	  return valueName;  
+  }
+  /**
+   * Convert List<Map<String, Object> to JSON Array
+   */
+  public JSONArray listMapToJsonArray(List<Map<String, Object>> list) throws JSONException {       
+      JSONArray json_arr=new JSONArray();
+      for (Map<String, Object> map : list) {
+          JSONObject json_obj=new JSONObject();
+          for (Map.Entry<String, Object> entry : map.entrySet()) {
+        	  LOGGER.info("map.entrySet() : {}",map.entrySet());
+              String key = entry.getKey();
+              Object value = entry.getValue();
+              json_obj.put(key,value);
+          }
+          json_arr.put(json_obj);
+      }
+      LOGGER.info("json_arr : {}",json_arr);
+      return json_arr;
+  }
+  
+  /**
+   * Return resource id by given term name, so that we can get a resource even if the mapping with correct (guid) does not exist
+   *
+   * @param termName
+   * @return
+   */
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  protected String getResourceIdForTermName(String termName, String URL) {
+    HttpHeaders headers = new HttpHeaders();
+    headers.add("apikey", conf.getAttivioApiKey());
+    
+    String collibraMappingApi = TERM_FIND_API.replace("{name}", termName);
+
+    HttpEntity requestEntity = new HttpEntity(headers);
+    System.out.println("Getting resource id for " + termName);
+    try {
+      final ResponseEntity<String> response =
+          collibraRestTemplate.exchange(
+              new StringBuilder().append(URL).append(collibraMappingApi).toString(),
+              HttpMethod.GET,
+              requestEntity,
+              String.class
+          );
+      System.out.println("Response: " + response);
+
+      if (response.getStatusCode() == HttpStatus.OK) {
+        String str = response.getBody();
+        String searchPhrase = new String("\"resourceType\":\"TE\",\"resourceId\":\"");
+        int start = str.indexOf(searchPhrase);
+        start += searchPhrase.length();
+        int end = str.indexOf("\",\"lastModified\"", start);
+        if(str.length() > searchPhrase.length()) {
+          return str.substring(start, end);
+        } else {
+          return null;
+        }
+      } else {
+        return null;
+      }
+    } catch (HttpClientErrorException exception) {
+      // file does not exist
+      if (exception.getStatusCode() == HttpStatus.BAD_REQUEST || exception.getStatusCode() == HttpStatus.NOT_FOUND) {
+        return null;
+      } else {
+        throw exception;
+      }
+    }
+  }
+  
+	// convert InputStream to String
+	private static String getStringFromInputStream(InputStream is) {
+
+		BufferedReader br = null;
+		StringBuilder sb = new StringBuilder();
+
+		String line;
+		try {
+
+			br = new BufferedReader(new InputStreamReader(is));
+			while ((line = br.readLine()) != null) {
+				sb.append(line);
+			}
+
+		} catch (IOException e) {
+			e.printStackTrace();
+		} finally {
+			if (br != null) {
+				try {
+					br.close();
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			}
+		}
+
+		return sb.toString();
+
+	} 
+  public long getJobTimeout() {
+	    return jobTimeout;
+	  }
+  
+  public void setJobTimeout(long jobTimeout) {
+	    this.jobTimeout = jobTimeout;
+	  }
+}

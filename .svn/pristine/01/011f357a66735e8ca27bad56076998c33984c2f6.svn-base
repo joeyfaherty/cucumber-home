@@ -1,0 +1,8 @@
+Feature: Launch Spring XD Job with incremental, mockInforpedia, fromDate and toDate paramaters set
+
+Scenario: Launch Spring XD Job with incremental, mockInforpedia, fromDate and toDate paramaters set
+	
+	Given the job inc-cucumber-test-schemas-todate-fromdate does not exist
+    When I create and launch the job inc-cucumber-test-schemas-todate-fromdate as bdl-attivio-collibra-integration --incremental=true --mockInfopediaApi=true  --fromDate=2016-01-24T11:18:05Z --toDate=2016-04-24T11:18:05Z --collibraEnvironment=dev --collibraImportColumns=false --collibraImportFunctions=false --collibraImportTables=false --collibraImportViews=false --collibraMappingExternalSystemId=ATTV --collibraSchemaVocabularyId=21846a0d-b38e-4c4f-9e39-2d949844444d --collibraSchemaMappingLocation="GPDB Schemas 1"
+	Then the job status for inc-cucumber-test-schemas-todate-fromdate is completed
+	And the job inc-cucumber-test-schemas-todate-fromdate is removed

@@ -1,0 +1,29 @@
+Feature: Reading Schemas from Attivio over Layer 7
+
+Scenario: List Schemas
+    Given a Greenplum connection 
+	When I execute the following query for SELECT_SCHEMA
+	Then I record the schema count
+    And I send a HTTP GET Request "https://ssgosgdev.isus.emc.com/dev/InformaticaRESTServices/document/schemas/offset/0/hits/500" to Infopedia
+    And the response code should be 200
+    And schema totalHits count from Attivio should match greenplum query result
+    
+Scenario: List Tables/Views
+    When I send a GET "https://ssgosgdev.isus.emc.com/dev/InformaticaRESTServices/document/exact/view/schema/revenue/offset/0/hits/5000"
+    Then the response code should be 200
+    When I send a GET "https://ssgosgdev.isus.emc.com/dev/InformaticaRESTServices/document/exact/view/schema/emcas_edservices_bi/offset/0/hits/5000"
+    Then the response code should be 200
+    When I send a GET "https://ssgosgdev.isus.emc.com/dev/InformaticaRESTServices/document/exact/view/schema/gs/offset/0/hits/5000"
+    Then the response code should be 200
+    When I send a GET "https://ssgosgdev.isus.emc.com/dev/InformaticaRESTServices/document/exact/view/schema/gp_toolkit/offset/0/hits/5000"
+    Then the response code should be 200
+    
+Scenario: List Functions
+    When I send a GET "https://ssgosgdev.isus.emc.com/dev/InformaticaRESTServices/document/exact/proc/schema/gp_toolkit/offset/0/hits/5000"
+    Then the response code should be 200
+    When I send a GET "https://ssgosgdev.isus.emc.com/dev/InformaticaRESTServices/document/exact/proc/schema/gs/offset/0/hits/5000"
+    Then the response code should be 200
+    When I send a GET "https://ssgosgdev.isus.emc.com/dev/InformaticaRESTServices/document/exact/proc/schema/revenue/offset/0/hits/5000"
+    Then the response code should be 200
+    When I send a GET "https://ssgosgdev.isus.emc.com/dev/InformaticaRESTServices/document/exact/proc/schema/emcas_edservices_bi/offset/0/hits/5000"
+    Then the response code should be 200

@@ -1,0 +1,112 @@
+package com.emc.it.bdl.config;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Map;
+import java.util.Properties;
+
+import org.apache.commons.beanutils.BeanUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.emc.automation.config.AutomationConfiguration;
+
+public class Config extends AutomationConfiguration {
+
+  public static final Logger LOGGER = LoggerFactory.getLogger(Config.class);
+
+
+  private String xdHost;
+  private String xdHostUser;
+  private String xdHostPassword;
+  private String collibraAuthHeader;
+  private String attivioApiKey;
+  private String postgresHost;
+  private String postgresUser;
+  private String postgresPassword;
+
+  public String getPostgresHost() {
+	return postgresHost;
+}
+
+public void setPostgresHost(String postgresHost) {
+	this.postgresHost = postgresHost;
+}
+
+public String getPostgresUser() {
+	return postgresUser;
+}
+
+public void setPostgresUser(String postgresUser) {
+	this.postgresUser = postgresUser;
+}
+
+public String getPostgresPassword() {
+	return postgresPassword;
+}
+
+public void setPostgresPassword(String postgresPassword) {
+	this.postgresPassword = postgresPassword;
+}
+
+public String getXdHost() {
+	return xdHost;
+}
+
+public void setXdHost(String xdHost) {
+	this.xdHost = xdHost;
+}
+
+public String getXdHostUser() {
+	return xdHostUser;
+}
+
+public void setXdHostUser(String xdHostUser) {
+	this.xdHostUser = xdHostUser;
+}
+
+public String getXdHostPassword() {
+	return xdHostPassword;
+}
+
+public void setXdHostPassword(String xdHostPassword) {
+	this.xdHostPassword = xdHostPassword;
+}
+
+
+public static Config load() {
+  Config dbConfig = new Config();
+  Properties prop = new Properties();
+  InputStream in =
+      AutomationConfiguration.class.getResourceAsStream("automationConfiguration.properties");
+  try {
+    prop.load(in);
+    BeanUtils.populate(dbConfig, (Map<?, ?>) prop);
+  } catch (Exception exception) {
+    LOGGER.error("Failed to load properties", exception);
+  } finally {
+    try {
+      in.close();
+    } catch (IOException ioException) {
+      LOGGER.error("Failed to close properties", ioException);
+    }
+  }
+  return dbConfig;
+}
+
+public String getCollibraAuthHeader() {
+	return collibraAuthHeader;
+}
+
+public void setCollibraAuthHeader(String collibraAuthHeader) {
+	this.collibraAuthHeader = collibraAuthHeader;
+}
+
+public String getAttivioApiKey() {
+	return attivioApiKey;
+}
+
+public void setAttivioApiKey(String attivioApiKey) {
+	this.attivioApiKey = attivioApiKey;
+}
+}

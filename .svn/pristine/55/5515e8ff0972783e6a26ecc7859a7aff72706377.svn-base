@@ -1,0 +1,21 @@
+###############################################################################################################
+#                                                                                                             #
+#     Properties to manage the test automation                                                                #
+#                                                                                                             #
+#     All environment details go here.                                                                        #
+#     Also the location of all the test data                                                                  #
+#                                                                                                             #
+#  These properties are filtered by the maven resources plugin. See the pom file for the actual values.       #
+#                                                                                                             #
+###############################################################################################################
+xdClientHost=${xdClientHost}
+xdClientHostUser=${xdClientHostUser}
+xdClientHostPassword=${xdClientHostPassword}
+xdHost=${xdHost}
+xdHostUser=${xdHostUser}
+xdHostPassword=${xdHostPassword}
+collibraAuthHeader=${collibraAuthHeader}
+attivioApiKey=${attivioApiKey}
+postgresHost=${postgresHost}
+postgresUser=${postgresUser}
+postgresPassword=${postgresPassword}
