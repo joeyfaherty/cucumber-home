@@ -2,7 +2,7 @@ Simple home project to get familiar with Spring/Cucumber integration & @tagging 
 
 
 
-Notes about cucumber:
+
 Best Practices on how to use cucumber. Cucumber is a collaboration tool, not a testing tool!
 
 ## Cucumber Process = BDD | Specification by Example
